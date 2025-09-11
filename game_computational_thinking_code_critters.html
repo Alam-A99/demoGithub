@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1" name="viewport" />
+  <title>Code Critters — Game Computational Thinking</title>
+  <style>
+    :root{ --bg:#f7fafc; --card:#ffffff; --accent:#2563eb; --muted:#6b7280 }
+    body{font-family:Arial,Helvetica,sans-serif;padding:10px;background:var(--bg);color:#111;margin:0}
+    .wrap{max-width:100%;margin:0 auto;display:grid;grid-template-columns:1fr;gap:18px}
+    .panel{background:var(--card);padding:14px;border-radius:12px;box-shadow:0 6px 18px rgba(15,23,42,0.06);margin-bottom:16px}
+    h1{font-size:18px;margin:0 0 8px}
+    p.small{color:var(--muted);font-size:13px;margin-top:0}
+
+    /* Grid world */
+    .world{width:100%;max-width:420px;height:420px;display:grid;grid-template-rows:repeat(5,1fr);grid-template-columns:repeat(5,1fr);gap:4px;background:linear-gradient(180deg,#e6eefc,#f8fbff);padding:8px;border-radius:10px;margin:auto}
+    .cell{background:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:600;color:#333;position:relative}
+    .actor{width:48px;height:48px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px}
+    .actor.squirrel{background:#ffedd5}
+    .goal{font-size:20px}
+
+    /* Commander */
+    .palette{display:flex;flex-direction:column;gap:8px}
+    .block{background:#eef2ff;border-radius:8px;padding:10px;display:flex;align-items:center;gap:8px;cursor:grab;border:2px dashed transparent}
+    .block:active{cursor:grabbing}
+    .inventory{min-height:120px;background:#fbfdff;border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:8px}
+    .slot{background:#fff;padding:8px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #eef2ff}
+    .controls{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+    button{background:var(--accent);color:#fff;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    button.secondary{background:#e2e8f0;color:#111}
+    .log{height:120px;overflow:auto;background:#0f172a;color:#fff;padding:8px;border-radius:8px;font-family:monospace;font-size:13px}
+    .hint{font-size:13px;color:var(--muted);margin-top:8px}
+
+    select,input{font-size:14px;padding:2px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>Code Critters — Panduan & Perintah</h1>
+      <p class="small">Susun perintah untuk membantu Tupai (🐿️) mencapai Kacang (🥜). Aktivitas ini melatih: sequencing, debugging, dan pengulangan sederhana.</p>
+
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
+        <div>
+          <strong>Perintah:</strong>
+          <div class="palette" id="palette">
+            <div class="block" draggable="true" data-type="forward">➡️ Maju</div>
+            <div class="block" draggable="true" data-type="left">⬅️ Putar Kiri</div>
+            <div class="block" draggable="true" data-type="right">➡️ Putar Kanan</div>
+            <div class="block" draggable="true" data-type="repeat">🔁 Ulang (x)
+              <input type="number" min="2" value="2" style="width:50px;margin-left:8px" class="repeat-count" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <strong>Rangkai Perintah:</strong>
+          <div class="inventory" id="program"></div>
+          <div class="controls">
+            <button id="runBtn">Jalankan</button>
+            <button class="secondary" id="stepBtn">Langkah</button>
+            <button class="secondary" id="clearBtn">Bersihkan</button>
+          </div>
+          <div class="hint">Tarik perintah dari kiri ke area rangkaian. Gunakan 'Ulang' untuk mengulang beberapa langkah.</div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px">
+        <strong>Log / Debug:</strong>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h1>Dunia Permainan</h1>
+      <div style="display:flex;flex-direction:column;gap:12px;align-items:center">
+        <div class="world" id="world"></div>
+        <div>
+          <div style="margin-bottom:8px"><strong>Level</strong></div>
+          <select id="levelSelect">
+            <option value="0">Level 1 — Mudah</option>
+            <option value="1">Level 2 — Tengah</option>
+            <option value="2">Level 3 — Tantangan</option>
+          </select>
+          <div style="margin-top:12px"><strong>Petunjuk singkat</strong>
+            <p class="small">Gunakan kombinasi Maju / Putar untuk menuju kacang. Jika gagal, cek urutan perintah dan gunakan Debug log untuk melihat langkah terperinci.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+// --- Simple grid world setup ---
+const worldEl = document.getElementById('world');
+const programEl = document.getElementById('program');
+const logEl = document.getElementById('log');
+const runBtn = document.getElementById('runBtn');
+const stepBtn = document.getElementById('stepBtn');
+const clearBtn = document.getElementById('clearBtn');
+const levelSelect = document.getElementById('levelSelect');
+
+let gridSize = 5;
+let actor = {x:0,y:4,dir:0}; // dir: 0 up, 1 right,2 down,3 left
+let goal = {x:4,y:0};
+let cells = [];
+
+const levels = [
+  {actor:{x:0,y:4,dir:0}, goal:{x:4,y:0}},
+  {actor:{x:1,y:4,dir:0}, goal:{x:3,y:1}},
+  {actor:{x:2,y:4,dir:3}, goal:{x:0,y:1}}
+];
+
+function createWorld(){
+  worldEl.innerHTML='';
+  cells = [];
+  for(let y=0;y<gridSize;y++){
+    for(let x=0;x<gridSize;x++){
+      const c=document.createElement('div'); c.className='cell'; c.dataset.x=x; c.dataset.y=y;
+      worldEl.appendChild(c); cells.push(c);
+    }
+  }
+}
+
+function placeActorAndGoal(){
+  cells.forEach(c=>c.innerHTML='');
+  const idx = (actor.y*gridSize)+actor.x;
+  const actorEl = document.createElement('div'); actorEl.className='actor squirrel';
+  actorEl.textContent='🐿️';
+  cells[idx].appendChild(actorEl);
+  const gidx = (goal.y*gridSize)+goal.x;
+  const goalEl = document.createElement('div'); goalEl.className='goal'; goalEl.textContent='🥜';
+  cells[gidx].appendChild(goalEl);
+}
+
+function setLevel(n){
+  const lv = levels[n] || levels[0];
+  actor = {...lv.actor}; goal = {...lv.goal}; createWorld(); placeActorAndGoal();
+}
+
+createWorld(); setLevel(0);
+
+let dragged = null;
+document.querySelectorAll('#palette .block').forEach(b=>{
+  b.addEventListener('dragstart', e=>{
+    dragged = {type: b.dataset.type, html: b.outerHTML};
+  });
+});
+
+programEl.addEventListener('dragover', e=>{e.preventDefault();});
+programEl.addEventListener('drop', e=>{
+  e.preventDefault();
+  if(!dragged) return;
+  const node = document.createElement('div'); node.className='slot';
+  node.dataset.type = dragged.type;
+  node.innerHTML = buildSlotContent(dragged.type);
+  addSlotListeners(node);
+  programEl.appendChild(node);
+});
+
+function buildSlotContent(type){
+  if(type==='forward') return '<span>➡️ Maju</span><button class="del">✖</button>';
+  if(type==='left') return '<span>⬅️ Putar Kiri</span><button class="del">✖</button>';
+  if(type==='right') return '<span>➡️ Putar Kanan</span><button class="del">✖</button>';
+  if(type==='repeat') return '<span>🔁 Ulang</span> <input type="number" min="2" value="2" class="repeat-count" style="width:48px" /><button class="del">✖</button>';
+  return '';
+}
+
+function addSlotListeners(slot){
+  slot.querySelector('.del').addEventListener('click', ()=>slot.remove());
+}
+
+clearBtn.addEventListener('click', ()=>{ programEl.innerHTML=''; log('Program dibersihkan.'); });
+
+function buildInstructionList(){
+  const list = [];
+  const slots = Array.from(programEl.children);
+  for(const s of slots){
+    const type = s.dataset.type;
+    if(type==='repeat'){
+      const n = parseInt(s.querySelector('.repeat-count').value) || 2;
+      const next = s.nextElementSibling;
+      if(next){
+        for(let i=0;i<n;i++) list.push({cmd: next.dataset.type});
+      }
+    } else {
+      list.push({cmd:type});
+    }
+  }
+  return list;
+}
+
+function log(t){ logEl.textContent += t + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+
+async function executeList(list, stepMode=false){
+  if(!list.length) { log('Program kosong.'); return; }
+  for(let i=0;i<list.length;i++){
+    const ins = list[i];
+    log('Langkah '+(i+1)+': '+ins.cmd);
+    stepExecute(ins.cmd);
+    placeActorAndGoal();
+    if(actor.x===goal.x && actor.y===goal.y){ log('Selamat! Tupai mencapai kacang 🎉'); return true; }
+    if(stepMode){ await waitForClick(); }
+    await sleep(400);
+  }
+  log('Program selesai. Tupai berada di ('+actor.x+','+actor.y+').');
+  return false;
+}
+
+function stepExecute(cmd){
+  if(cmd==='forward'){
+    let nx=actor.x, ny=actor.y;
+    if(actor.dir===0) ny--; if(actor.dir===1) nx++; if(actor.dir===2) ny++; if(actor.dir===3) nx--;
+    if(nx<0||ny<0||nx>=gridSize||ny>=gridSize){ log('Menabrak batas dunia — gerakan dibatalkan.'); return false; }
+    actor.x=nx; actor.y=ny; return true;
+  }
+  if(cmd==='left'){ actor.dir = (actor.dir+3)%4; return true; }
+  if(cmd==='right'){ actor.dir = (actor.dir+1)%4; return true; }
+  return false;
+}
+
+function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+
+function waitForClick(){ return new Promise(r=>{ const handler=()=>{ document.removeEventListener('click', handler); r(); }; log('Klik di mana saja untuk melanjutkan...'); document.addEventListener('click', handler); }); }
+
+runBtn.addEventListener('click', async ()=>{
+  setLevel(parseInt(levelSelect.value)); logEl.textContent='';
+  const list = buildInstructionList();
+  await executeList(list, false);
+});
+
+stepBtn.addEventListener('click', async ()=>{
+  setLevel(parseInt(levelSelect.value)); logEl.textContent='';
+  const list = buildInstructionList();
+  await executeList(list, true);
+});
+
+levelSelect.addEventListener('change', ()=>{ setLevel(parseInt(levelSelect.value)); log('Level diatur ke '+(parseInt(levelSelect.value)+1)); });
+
+log('Selamat datang! Tarik perintah ke area "Rangkai Perintah" lalu klik Jalankan.');
+</script>
+</body>
+</html>
